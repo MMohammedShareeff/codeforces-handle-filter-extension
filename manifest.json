@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "CF Handle Filter",
-  "version": "1.0.0",
-  "description": "Filter Codeforces contests and standings by saved handle lists",
+  "version": "1.0.1",
+  "description": "Filter Codeforces contests and standings by saved handle lists, solved matrix (solved or not by users handles for multiple problems)",
   "permissions": [
     "storage",
     "activeTab",
