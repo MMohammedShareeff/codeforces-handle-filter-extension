@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CF Handle Filter</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="style/popup.css" />
+    <style></style>
+  </head>
+  <body>
+    <div class="header">
+      <div class="logo">CF</div>
+      <div class="header-text">
+        <h1>CF Handle Filter</h1>
+        <p>codeforces.com</p>
+      </div>
+      <div class="status-dot" id="statusDot"></div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="lists">Lists</button>
+      <button class="tab" data-tab="filter">Filter</button>
+    </div>
+
+    <div class="panel active" id="panel-lists">
+      <div class="lists-header">
+        <div class="input-row">
+          <input
+            type="text"
+            id="newListName"
+            placeholder="New list name…"
+            maxlength="30"
+          />
+          <button class="btn btn-primary" id="createListBtn">+ Create</button>
+        </div>
+      </div>
+      <div class="lists-scroll" id="listsContainer">
+        <div class="empty-state" id="emptyState">
+          <div class="icon">📋</div>
+          <p>
+            No lists yet.<br />Create a list and add Codeforces handles to it.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- FILTER PANEL -->
+    <div class="panel" id="panel-filter">
+      <div class="filter-panel-inner">
+        <div class="section-label">Active list</div>
+        <div class="active-list-selector" id="listSelector">
+          <p
+            style="
+              color: var(--text3);
+              font-size: 12px;
+              text-align: center;
+              padding: 6px 0;
+            "
+          >
+            No lists created yet
+          </p>
+        </div>
+
+        <div class="section-label" style="margin-top: 10px">Settings</div>
+        <div class="toggle-row">
+          <label for="toggleHighlight">Highlight matched users</label>
+          <input type="checkbox" class="toggle" id="toggleHighlight" checked />
+        </div>
+        <div class="toggle-row">
+          <label for="toggleHide">Hide non-matched rows</label>
+          <input type="checkbox" class="toggle" id="toggleHide" />
+        </div>
+        <div class="toggle-row">
+          <label for="toggleBadge">Show rank badges</label>
+          <input type="checkbox" class="toggle" id="toggleBadge" checked />
+        </div>
+
+        <button class="apply-btn" id="applyBtn">
+          Apply Filter to This Page
+        </button>
+        <button class="apply-btn off" id="clearBtn" style="margin-top: 6px">
+          Clear Filter
+        </button>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span class="footer-info" id="footerInfo">0 lists · 0 handles</span>
+      <span class="filter-status off" id="filterStatusBadge">OFF</span>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
