@@ -38,6 +38,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     tab.classList.add('active');
     document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
     if (tab.dataset.tab === 'filter') renderFilterPanel();
+    if (tab.dataset.tab === 'solved') renderSolvedPanel();
   });
 });
 
@@ -45,7 +46,7 @@ document.querySelectorAll('.tab').forEach(tab => {
 function renderLists() {
   const container = document.getElementById('listsContainer');
   const empty = document.getElementById('emptyState');
-  const ids = Object.keys(state.lists);
+  const ids = Object.keys(state.lists).sort((a, b) => getListCreatedAt(b) - getListCreatedAt(a));
 
   if (ids.length === 0) {
     empty.style.display = 'block';
@@ -83,7 +84,7 @@ function renderLists() {
           </button>
           <button class="btn btn-sm import-btn" data-id="${id}" 
             style="background:var(--bg3);color:var(--text2);border:1px solid var(--border)">
-            Import CSV
+            Import File
           </button>
           <button class="btn btn-danger btn-sm delete-list-btn" data-id="${id}">Delete</button>
         </div>
@@ -144,15 +145,20 @@ function renderLists() {
     });
   });
 
-  // Import CSV
+  // Import handles from CSV, TXT, or XLSX
   container.querySelectorAll('.import-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      importCSV(btn.dataset.id);
+      importHandlesFile(btn.dataset.id);
     });
   });
 
   updateFooter();
+}
+
+function getListCreatedAt(id) {
+  const match = id.match(/^list_(\d+)$/);
+  return match ? Number(match[1]) : 0;
 }
 
 function renderTags(id) {
@@ -215,36 +221,187 @@ function updateListCard(id) {
   updateFooter();
 }
 
-// ─── Import CSV ──────────────────────────────────────────────────────────────
-function importCSV(listId) {
+// ─── Import handles ──────────────────────────────────────────────────────────
+function importHandlesFile(listId) {
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = '.csv,.txt';
-  input.onchange = (e) => {
+  input.accept = '.csv,.txt,.xlsx';
+  input.onchange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const handles = ev.target.result
-        .split(/[\n,\r\t]+/)
-        .map(h => h.trim())
-        .filter(h => h && /^[a-zA-Z0-9_\-]{2,24}$/.test(h));
-      let added = 0;
-      handles.forEach(h => {
-        if (!state.lists[listId].handles.includes(h)) {
-          state.lists[listId].handles.push(h);
-          added++;
-        }
-      });
-      saveState();
-      renderTags(listId);
-      updateListCard(listId);
-      if (state.activeListId === listId) sendFilterToTab();
-      showToast(`Imported ${added} handles`);
-    };
-    reader.readAsText(file);
+
+    try {
+      const handles = await readHandlesFromFile(file);
+      addImportedHandles(listId, handles);
+    } catch (err) {
+      showToast(err.message || 'Could not import file');
+    }
   };
   input.click();
+}
+
+async function readHandlesFromFile(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+
+  if (ext === 'txt' || ext === 'csv') {
+    return parseHandlesFromText(await file.text());
+  }
+  if (ext === 'xlsx') {
+    return parseHandlesFromText((await readXlsxCells(file)).join('\n'));
+  }
+
+  throw new Error('Use CSV, TXT, or XLSX');
+}
+
+function addImportedHandles(listId, handles) {
+  if (!state.lists[listId]) return;
+
+  let added = 0;
+  handles.forEach(h => {
+    if (!state.lists[listId].handles.includes(h)) {
+      state.lists[listId].handles.push(h);
+      added++;
+    }
+  });
+
+  saveState();
+  renderTags(listId);
+  updateListCard(listId);
+  if (state.activeListId === listId) sendFilterToTab();
+  showToast(`Imported ${added} handle${added === 1 ? '' : 's'}`);
+}
+
+function parseHandlesFromText(text) {
+  return text
+    .split(/[\n,\r\t ;]+/)
+    .map(h => h.trim())
+    .filter(h => h && /^[a-zA-Z0-9_\-]{2,24}$/.test(h));
+}
+
+async function readXlsxCells(file) {
+  const entries = await readZipEntries(await file.arrayBuffer());
+  const sharedStringsXml = entries['xl/sharedStrings.xml'];
+  const sheetPath = getFirstWorksheetPath(entries);
+  const sheetXml = sheetPath ? entries[sheetPath] : null;
+
+  if (!sheetXml) {
+    throw new Error('No worksheet found');
+  }
+
+  const sharedStrings = sharedStringsXml ? parseSharedStrings(sharedStringsXml) : [];
+  return parseWorksheetCells(sheetXml, sharedStrings);
+}
+
+function getFirstWorksheetPath(entries) {
+  if (entries['xl/worksheets/sheet1.xml']) return 'xl/worksheets/sheet1.xml';
+  return Object.keys(entries)
+    .filter(name => /^xl\/worksheets\/sheet\d+\.xml$/i.test(name))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))[0];
+}
+
+async function readZipEntries(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const entries = {};
+  const decoder = new TextDecoder();
+  const eocdOffset = findEndOfCentralDirectory(bytes);
+
+  if (eocdOffset < 0) {
+    throw new Error('Invalid XLSX file');
+  }
+
+  const view = new DataView(buffer);
+  const totalEntries = view.getUint16(eocdOffset + 10, true);
+  const centralDirectoryOffset = view.getUint32(eocdOffset + 16, true);
+  let offset = centralDirectoryOffset;
+
+  for (let i = 0; i < totalEntries; i++) {
+    if (view.getUint32(offset, true) !== 0x02014b50) break;
+
+    const compression = view.getUint16(offset + 10, true);
+    const compressedSize = view.getUint32(offset + 20, true);
+    const fileNameLength = view.getUint16(offset + 28, true);
+    const extraLength = view.getUint16(offset + 30, true);
+    const commentLength = view.getUint16(offset + 32, true);
+    const localHeaderOffset = view.getUint32(offset + 42, true);
+    const fileName = decoder.decode(bytes.slice(offset + 46, offset + 46 + fileNameLength));
+
+    if (fileName.endsWith('.xml')) {
+      entries[fileName] = await readZipFileEntry(bytes, view, localHeaderOffset, compressedSize, compression);
+    }
+
+    offset += 46 + fileNameLength + extraLength + commentLength;
+  }
+
+  return entries;
+}
+
+function findEndOfCentralDirectory(bytes) {
+  for (let i = bytes.length - 22; i >= 0 && i >= bytes.length - 65558; i--) {
+    if (
+      bytes[i] === 0x50 &&
+      bytes[i + 1] === 0x4b &&
+      bytes[i + 2] === 0x05 &&
+      bytes[i + 3] === 0x06
+    ) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+async function readZipFileEntry(bytes, view, localHeaderOffset, compressedSize, compression) {
+  const decoder = new TextDecoder();
+
+  if (view.getUint32(localHeaderOffset, true) !== 0x04034b50) {
+    throw new Error('Invalid XLSX entry');
+  }
+
+  const fileNameLength = view.getUint16(localHeaderOffset + 26, true);
+  const extraLength = view.getUint16(localHeaderOffset + 28, true);
+  const dataStart = localHeaderOffset + 30 + fileNameLength + extraLength;
+  const compressed = bytes.slice(dataStart, dataStart + compressedSize);
+
+  if (compression === 0) {
+    return decoder.decode(compressed);
+  }
+  if (compression !== 8) {
+    throw new Error('Unsupported XLSX compression');
+  }
+  if (!('DecompressionStream' in window)) {
+    throw new Error('XLSX import needs a newer Chrome/Edge');
+  }
+
+  const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return decoder.decode(await new Response(stream).arrayBuffer());
+}
+
+function parseSharedStrings(xml) {
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  return getElementsByLocalName(doc, 'si').map(item => {
+    return getElementsByLocalName(item, 't').map(node => node.textContent || '').join('');
+  });
+}
+
+function parseWorksheetCells(xml, sharedStrings) {
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  return getElementsByLocalName(doc, 'c').map(cell => {
+    const type = cell.getAttribute('t');
+    const value = getElementsByLocalName(cell, 'v')[0];
+    const inlineTextContainer = getElementsByLocalName(cell, 'is')[0];
+    const inlineText = inlineTextContainer ? getElementsByLocalName(inlineTextContainer, 't')[0] : null;
+
+    if (type === 's' && value) {
+      return sharedStrings[Number(value.textContent)] || '';
+    }
+    if (inlineText) {
+      return inlineText.textContent || '';
+    }
+    return value ? value.textContent || '' : '';
+  });
+}
+
+function getElementsByLocalName(root, localName) {
+  return Array.from(root.getElementsByTagName('*')).filter(node => node.localName === localName);
 }
 
 // ─── Create list ─────────────────────────────────────────────────────────────
@@ -259,15 +416,24 @@ function createList() {
   if (!name) { showToast('Enter a list name'); return; }
   const id = 'list_' + Date.now();
   state.lists[id] = { name, handles: [] };
+  state.activeListId = id;
+  state.filterOn = true;
   input.value = '';
   saveState();
   renderLists();
+  renderFilterPanel();
+  updateFooter();
+  sendFilterToTab();
   // Auto-open the new card
   setTimeout(() => {
     const body = document.getElementById('body-' + id);
     if (body) body.classList.add('open');
+    const card = document.querySelector(`.list-card[data-id="${id}"]`);
+    if (card) card.scrollIntoView({ block: 'nearest' });
+    const handleInput = document.querySelector(`.handle-input[data-id="${id}"]`);
+    if (handleInput) handleInput.focus();
   }, 50);
-  showToast(`List "${name}" created`);
+  showToast(`List "${name}" created and activated`);
 }
 
 // ─── Filter panel ─────────────────────────────────────────────────────────────
@@ -292,9 +458,12 @@ function renderFilterPanel() {
     selector.querySelectorAll('.list-selector-item').forEach(item => {
       item.addEventListener('click', () => {
         state.activeListId = item.dataset.id;
+        state.filterOn = true;
         saveState();
         renderFilterPanel();
         renderLists();
+        updateFooter();
+        sendFilterToTab();
       });
     });
   }
@@ -312,6 +481,221 @@ function renderFilterPanel() {
     saveState();
   });
 });
+
+// ─── Solved checker ───────────────────────────────────────────────────────────
+document.getElementById('checkSolvedBtn').addEventListener('click', checkSolvedForProblem);
+document.getElementById('problemCodeInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') checkSolvedForProblem();
+});
+
+function renderSolvedPanel() {
+  const activeList = state.activeListId ? state.lists[state.activeListId] : null;
+  const activeEl = document.getElementById('solverActiveList');
+  const resultsEl = document.getElementById('solverResults');
+
+  if (!activeList) {
+    activeEl.textContent = 'No active list selected';
+    resultsEl.innerHTML = '<div class="solver-empty">Set an active list first.</div>';
+    return;
+  }
+
+  activeEl.innerHTML = `Active list: <strong>${escHtml(activeList.name)}</strong> (${activeList.handles.length} handles)`;
+  if (!resultsEl.innerHTML.trim()) {
+    resultsEl.innerHTML = '<div class="solver-empty">No checks yet.</div>';
+  }
+}
+
+async function checkSolvedForProblem() {
+  const activeList = state.activeListId ? state.lists[state.activeListId] : null;
+  const input = document.getElementById('problemCodeInput');
+  const button = document.getElementById('checkSolvedBtn');
+  const summary = document.getElementById('solverSummary');
+  const problemTokens = getProblemCodeTokens(input.value);
+  const problems = parseProblemCodes(problemTokens);
+
+  if (!activeList) {
+    showToast('Select an active list first');
+    renderSolvedPanel();
+    return;
+  }
+  if (activeList.handles.length === 0) {
+    showToast('Active list has no handles');
+    return;
+  }
+  if (problemTokens.length === 0 || problemTokens.some(token => !parseProblemCode(token))) {
+    showToast('Use codes like 123A 456B');
+    input.focus();
+    return;
+  }
+
+  const results = activeList.handles.map(handle => ({
+    handle,
+    status: 'checking',
+    solved: {}
+  }));
+  const problemLabels = problems.map(formatProblemCode);
+
+  button.disabled = true;
+  button.textContent = 'Checking...';
+  summary.textContent = `Checking ${activeList.handles.length} handles against ${problems.length} problems...`;
+  renderSolvedResults(results, problemLabels);
+
+  let finished = 0;
+  await mapWithConcurrency(activeList.handles, 1, async (handle, index) => {
+    const result = await fetchSolvedStatus(handle, problems);
+    results[index] = result;
+    finished++;
+    summary.textContent = `Checked ${finished}/${activeList.handles.length} handles against ${problems.length} problems.`;
+    renderSolvedResults(results, problemLabels);
+    await delay(350);
+  });
+
+  summary.textContent = buildSolvedSummary(results, problemLabels);
+  button.disabled = false;
+  button.textContent = 'Check';
+  showToast('Solved table ready');
+}
+
+function getProblemCodeTokens(value) {
+  return value.trim().toUpperCase().split(/[\s,;]+/).filter(Boolean);
+}
+
+function parseProblemCodes(tokens) {
+  const seen = new Set();
+  return tokens
+    .map(parseProblemCode)
+    .filter(problem => {
+      const label = formatProblemCode(problem);
+      if (seen.has(label)) return false;
+      seen.add(label);
+      return true;
+    });
+}
+
+function parseProblemCode(value) {
+  const match = value.match(/^(\d+)([A-Z][A-Z0-9]*)$/);
+  if (!match) return null;
+  return {
+    contestId: Number(match[1]),
+    index: match[2]
+  };
+}
+
+function formatProblemCode(problem) {
+  return `${problem.contestId}${problem.index}`;
+}
+
+async function fetchSolvedStatus(handle, problems) {
+  try {
+    const data = await fetchCodeforcesStatus(handle);
+
+    if (data.status !== 'OK') {
+      return { handle, status: 'error', solved: {}, note: data.comment || 'API error' };
+    }
+
+    const solvedSet = new Set(
+      data.result
+        .filter(submission => submission.verdict === 'OK')
+        .map(submission => submission.problem || {})
+        .filter(problem => problem.contestId && problem.index)
+        .map(problem => `${problem.contestId}${String(problem.index).toUpperCase()}`)
+    );
+    const solved = {};
+    problems.forEach(problem => {
+      solved[formatProblemCode(problem)] = solvedSet.has(formatProblemCode(problem));
+    });
+
+    return { handle, status: 'done', solved };
+  } catch (err) {
+    return { handle, status: 'error', solved: {}, note: 'Request failed' };
+  }
+}
+
+async function fetchCodeforcesStatus(handle) {
+  const url = `https://codeforces.com/api/user.status?handle=${encodeURIComponent(handle)}&from=1&count=10000`;
+  let lastData = null;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await delay(1600);
+
+    const response = await fetch(url, { cache: 'no-store' });
+    const data = await response.json();
+    lastData = data;
+
+    if (data.status === 'OK' || !isTemporaryCodeforcesError(data.comment)) {
+      return data;
+    }
+  }
+
+  return lastData || { status: 'FAILED', comment: 'API error' };
+}
+
+function isTemporaryCodeforcesError(comment) {
+  return /limit|too many|temporar|try again/i.test(comment || '');
+}
+
+function renderSolvedResults(results, problemLabels) {
+  const container = document.getElementById('solverResults');
+  if (!results.length) {
+    container.innerHTML = '<div class="solver-empty">No handles to check.</div>';
+    return;
+  }
+
+  container.innerHTML = `
+    <table class="solver-table">
+      <thead>
+        <tr>
+          <th class="solver-handle-col">Handle</th>
+          ${problemLabels.map(label => `<th>${escHtml(label)}</th>`).join('')}
+        </tr>
+      </thead>
+      <tbody>
+        ${results.map(result => `
+          <tr>
+            <td class="solver-handle-col">${escHtml(result.handle)}</td>
+            ${problemLabels.map(label => `<td>${renderSolvedStatus(result, label)}</td>`).join('')}
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderSolvedStatus(result, problemLabel) {
+  if (result.status === 'checking') {
+    return '<span class="solved-status error">Checking</span>';
+  }
+  if (result.status === 'error') {
+    const note = result.note ? `: ${result.note}` : '';
+    return `<span class="solved-status error" title="${escHtml(result.note || '')}">Error</span><span class="solver-error-note">${escHtml(note)}</span>`;
+  }
+  return result.solved[problemLabel]
+    ? '<span class="solved-status yes">Solved</span>'
+    : '<span class="solved-status no">Not solved</span>';
+}
+
+function buildSolvedSummary(results, problemLabels) {
+  const counts = problemLabels.map(label => {
+    const solvedCount = results.filter(result => result.status === 'done' && result.solved[label]).length;
+    return `${label}: ${solvedCount}/${results.length}`;
+  });
+  return `Checked ${results.length} handles against ${problemLabels.length} problems. ${counts.join(', ')}`;
+}
+
+async function mapWithConcurrency(items, limit, mapper) {
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      await mapper(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+}
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 // ─── Apply / Clear ────────────────────────────────────────────────────────────
 document.getElementById('applyBtn').addEventListener('click', () => {
@@ -369,6 +753,7 @@ function updateFooter() {
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 function escHtml(str) {
+  str = String(str ?? '');
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 

@@ -14,10 +14,10 @@
   </head>
   <body>
     <div class="header">
-      <div class="logo">CF</div>
+      <img class="logo" src="icons/logo.svg" alt="CF Handle Filter logo" />
       <div class="header-text">
-        <h1>CF Handle Filter</h1>
-        <p>codeforces.com</p>
+        <h1>PPU Code Academy</h1>
+        <p>CF Handle Filter</p>
       </div>
       <div class="status-dot" id="statusDot"></div>
     </div>
@@ -25,6 +25,7 @@
     <div class="tabs">
       <button class="tab active" data-tab="lists">Lists</button>
       <button class="tab" data-tab="filter">Filter</button>
+      <button class="tab" data-tab="solved">Solved</button>
     </div>
 
     <div class="panel active" id="panel-lists">
@@ -86,6 +87,32 @@
         <button class="apply-btn off" id="clearBtn" style="margin-top: 6px">
           Clear Filter
         </button>
+      </div>
+    </div>
+
+    <!-- SOLVED PANEL -->
+    <div class="panel" id="panel-solved">
+      <div class="solver-panel-inner">
+        <div class="section-label">Problem checker</div>
+        <div class="solver-card">
+          <div class="solver-active-list" id="solverActiveList">
+            No active list selected
+          </div>
+          <div class="input-row solver-input-row">
+            <input
+              type="text"
+              id="problemCodeInput"
+              placeholder="Problem codes, e.g. 123A 456B"
+              maxlength="200"
+            />
+            <button class="btn btn-primary" id="checkSolvedBtn">Check</button>
+          </div>
+          <div class="solver-summary" id="solverSummary">
+            Enter problem codes to check the active list.
+          </div>
+        </div>
+
+        <div class="solver-results" id="solverResults"></div>
       </div>
     </div>
 

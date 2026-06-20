@@ -1,0 +1,31 @@
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title">
+  <title>PPU Code Academy logo</title>
+  <defs>
+    <linearGradient id="blue" x1="92" y1="28" x2="174" y2="198" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0968dc"/>
+      <stop offset="1" stop-color="#0753c8"/>
+    </linearGradient>
+    <linearGradient id="yellow" x1="54" y1="88" x2="98" y2="178" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffc21a"/>
+      <stop offset="1" stop-color="#ffad05"/>
+    </linearGradient>
+    <linearGradient id="red" x1="156" y1="88" x2="202" y2="178" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#e81723"/>
+      <stop offset="1" stop-color="#d7111e"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="256" height="256" fill="#ffffff"/>
+  <circle cx="128" cy="128" r="106" fill="none" stroke="#0b61d8" stroke-width="6"/>
+
+  <path d="M43 106L18 125L43 144" fill="none" stroke="#ffb20a" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M213 106L238 125L213 144" fill="none" stroke="#ffb20a" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <rect x="64" y="92" width="37" height="90" rx="7" fill="url(#yellow)"/>
+  <rect x="156" y="92" width="37" height="90" rx="7" fill="url(#red)"/>
+  <path d="M96 70h64c5.5 0 9 6 6.2 10.8L139 127v48c0 6.6-5.4 12-12 12h-3c-6.6 0-12-5.4-12-12v-48L89.8 80.8C87 76 90.5 70 96 70z" fill="url(#blue)"/>
+
+  <text x="128" y="211" text-anchor="middle" fill="#0b61d8" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="800">
+    PPU Code Academy
+  </text>
+</svg>
